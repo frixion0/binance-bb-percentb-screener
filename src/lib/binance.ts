@@ -7,6 +7,13 @@ import {
   computePctBSeries,
   detectStraightRun,
 } from "./bb";
+import {
+  computeWaveTrend,
+  findLatestSignals,
+  RSI_PERIOD,
+  WT_N1,
+  WT_N2,
+} from "./wavetrend";
 
 const BASE_URL = "https://fapi.binance.com";
 
@@ -58,6 +65,32 @@ export interface FlatOptions {
   requireBullishEngulfing: boolean;
   /** How many recent candle-pairs to scan for the engulfing pattern. */
   beWindow: number;
+}
+
+export type WaveTrendSignalType = "positive" | "negative";
+
+export interface WaveTrendMatch {
+  symbol: string;
+  currentPrice: number;
+  /** Latest wt1 value. */
+  wt1: number;
+  /** Latest wt2 value. */
+  wt2: number;
+  /** Latest wt1 - wt2 ("YellowWave"). */
+  yellowWave: number;
+  /** Latest RSI(14). */
+  rsi14: number;
+  /** Which signal fired: "positive" (green) or "negative" (red). */
+  signalType: WaveTrendSignalType;
+  /** Candles ago the signal fired (0 = current candle). */
+  signalOffset: number;
+}
+
+export interface WaveTrendOptions {
+  /** Which signal types to include. */
+  signals: "positive" | "negative" | "both";
+  /** How many recent candles to scan for a signal. */
+  lookback: number;
 }
 
 /** Fetch every actively trading USDT/USDC perpetual symbol (cached 60s). */
@@ -255,6 +288,67 @@ export async function scanSymbolFlat(
       recentBBs: pctBs.slice(-Math.min(opts.lookback, pctBs.length)),
       bullishEngulfing: be.found,
       beOffset: be.offset,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Scan a symbol for Wave Trend "Positive/Negative Pressure" signals (the
+ * circle plots in the Pine Script). Fetches enough klines for RSI(14) +
+ * WaveTrend(9,12) to stabilize, computes the indicator, and looks for the most
+ * recent signal within `lookback` candles.
+ */
+export async function scanSymbolWaveTrend(
+  symbol: string,
+  interval: string,
+  opts: WaveTrendOptions
+): Promise<WaveTrendMatch | null> {
+  try {
+    // Need enough candles for RSI(14) + EMA seeding + lookback window.
+    const limit = Math.max(80, RSI_PERIOD + WT_N1 + WT_N2 + opts.lookback + 10);
+    const klines = await fetchKlines(symbol, interval, limit);
+    if (!klines) return null;
+
+    const highs = klines.map((k) => k.high);
+    const lows = klines.map((k) => k.low);
+    const closes = klines.map((k) => k.close);
+
+    const series = computeWaveTrend(highs, lows, closes);
+    const { positive, negative } = findLatestSignals(series, opts.lookback);
+
+    const wantPos = opts.signals === "positive" || opts.signals === "both";
+    const wantNeg = opts.signals === "negative" || opts.signals === "both";
+
+    // Pick the most recent qualifying signal (positive wins ties since they're
+    // the bullish/buy-side signal).
+    let signalType: WaveTrendSignalType | null = null;
+    let signalOffset = Infinity;
+    if (wantPos && positive.found && (positive.offset ?? Infinity) < signalOffset) {
+      signalType = "positive";
+      signalOffset = positive.offset!;
+    }
+    if (wantNeg && negative.found && (negative.offset ?? Infinity) < signalOffset) {
+      // For "both" mode, if negative is more recent than positive, prefer it.
+      if (negative.offset! < signalOffset) {
+        signalType = "negative";
+        signalOffset = negative.offset!;
+      }
+    }
+
+    if (signalType === null) return null;
+
+    const i = closes.length - 1;
+    return {
+      symbol,
+      currentPrice: closes[i],
+      wt1: series.wt1[i],
+      wt2: series.wt2[i],
+      yellowWave: series.yellowWave[i],
+      rsi14: series.rsi14[i],
+      signalType,
+      signalOffset,
     };
   } catch {
     return null;

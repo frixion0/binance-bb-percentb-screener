@@ -1,6 +1,6 @@
 "use client";
 
-import { LineChart, Radar } from "lucide-react";
+import { Activity, LineChart, Radar } from "lucide-react";
 
 import {
   Tabs,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/tabs";
 import { CrossoverView } from "@/components/screener/crossover-view";
 import { FlatView } from "@/components/screener/flat-view";
+import { WaveTrendView } from "@/components/screener/wavetrend-view";
 
 export default function Home() {
   return (
@@ -58,6 +59,13 @@ export default function Home() {
               <LineChart className="size-4" />
               Straight-Line Detector
             </TabsTrigger>
+            <TabsTrigger
+              value="wavetrend"
+              className="data-[state=active]:bg-binance-yellow data-[state=active]:text-background data-[state=active]:shadow-md px-4 py-2 text-sm font-semibold gap-2"
+            >
+              <Activity className="size-4" />
+              Wave Trend Signals
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="crossover">
@@ -65,6 +73,9 @@ export default function Home() {
           </TabsContent>
           <TabsContent value="flat">
             <FlatView />
+          </TabsContent>
+          <TabsContent value="wavetrend">
+            <WaveTrendView />
           </TabsContent>
         </Tabs>
 
