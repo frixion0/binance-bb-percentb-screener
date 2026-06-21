@@ -28,6 +28,7 @@ export interface SettingSpec {
 }
 
 const INTERVALS = [
+  { value: "1m", label: "1m" },
   { value: "15m", label: "15m" },
   { value: "1h", label: "1h" },
   { value: "4h", label: "4h" },

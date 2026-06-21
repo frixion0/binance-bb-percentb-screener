@@ -9,15 +9,15 @@ import { clampNumber, runScanStream, SSE_HEADERS } from "@/lib/scan-stream";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const VALID_INTERVALS = new Set(["15m", "1h", "4h", "1d"]);
+const VALID_INTERVALS = new Set(["1m", "15m", "1h", "4h", "1d"]);
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
 
   const interval = searchParams.get("interval") || "1h";
-  const bbPeriod = clampNumber(searchParams.get("bbPeriod"), 20, 5, 50);
-  const bbStddev = clampNumber(searchParams.get("bbStddev"), 2, 0.5, 4);
-  const target = clampNumber(searchParams.get("target"), 0, -1, 1);
+  const bbPeriod = clampNumber(searchParams.get("bbPeriod"), 20, 2, 200);
+  const bbStddev = clampNumber(searchParams.get("bbStddev"), 2, 0.1, 10);
+  const target = clampNumber(searchParams.get("target"), 0, -10, 10);
 
   const encoder = new TextEncoder();
 
