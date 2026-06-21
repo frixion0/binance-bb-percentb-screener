@@ -1,8 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { RotateCcw, SlidersHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -12,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
 
 export interface SettingSpec {
   key: string;
@@ -30,6 +33,105 @@ const INTERVALS = [
   { value: "4h", label: "4h" },
   { value: "1d", label: "1d" },
 ];
+
+/** Decide how many decimals to display/show in the input from the step size. */
+function decimalsFor(step: number): number {
+  if (step >= 1) return 0;
+  const s = String(step);
+  const dot = s.indexOf(".");
+  return dot === -1 ? 0 : Math.min(4, s.length - dot - 1);
+}
+
+/**
+ * Lenient numeric input paired with a slider. Users can type a value directly
+ * (allowing intermediate states like "0." or "-") and the value is clamped to
+ * [min, max] on blur / Enter. The slider stays in sync and vice-versa.
+ */
+function SettingSlider({
+  spec,
+  disabled,
+}: {
+  spec: SettingSpec;
+  disabled: boolean;
+}) {
+  const { label, value, min, max, step, hint, onChange } = spec;
+  const digits = decimalsFor(step);
+
+  // Local string buffer so typing isn't interrupted by number formatting.
+  const [text, setText] = useState(value.toFixed(digits));
+
+  // Keep the buffer in sync when the value changes externally (e.g. Reset).
+  useEffect(() => {
+    setText(value.toFixed(digits));
+  }, [value, digits]);
+
+  const commit = (raw: string) => {
+    const trimmed = raw.trim();
+    if (trimmed === "" || trimmed === "-" || trimmed === ".") {
+      // Empty / partial -> revert to current value.
+      setText(value.toFixed(digits));
+      return;
+    }
+    let n = Number(trimmed);
+    if (!Number.isFinite(n)) {
+      setText(value.toFixed(digits));
+      return;
+    }
+    // Clamp into range, then snap to the nearest step.
+    n = Math.min(max, Math.max(min, n));
+    if (step > 0) {
+      n = Math.round(n / step) * step;
+    }
+    n = Math.min(max, Math.max(min, n));
+    // Round away float drift from snapping.
+    n = Number(n.toFixed(digits));
+    onChange(n);
+    setText(n.toFixed(digits));
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs uppercase tracking-wide text-binance-muted">
+          {label}
+        </Label>
+        <Input
+          type="text"
+          inputMode="decimal"
+          value={text}
+          disabled={disabled}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={(e) => commit(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.currentTarget.blur();
+            }
+          }}
+          className={cn(
+            "h-7 w-20 px-2 py-1 text-xs font-mono font-semibold text-right tabular-nums",
+            "bg-secondary border-border text-binance-yellow focus-visible:border-binance-yellow",
+            "focus-visible:ring-binance-yellow/30"
+          )}
+          aria-label={label}
+        />
+      </div>
+      <Slider
+        value={[value]}
+        min={min}
+        max={max}
+        step={step}
+        onValueChange={(v) => onChange(v[0])}
+        disabled={disabled}
+        className="[&_[data-slot=slider-range]]:bg-binance-yellow [&_[data-slot=slider-thumb]]:border-binance-yellow"
+      />
+      {hint && (
+        <span className="text-[10px] text-binance-muted/80 leading-tight">
+          {hint}
+        </span>
+      )}
+    </div>
+  );
+}
 
 /**
  * Collapsible-style settings card. Renders the shared controls (timeframe, BB
@@ -103,32 +205,9 @@ export function SettingsPanel({
           </Select>
         </div>
 
-        {/* Numeric sliders */}
+        {/* Numeric sliders with typeable inputs */}
         {allSettings.map((s) => (
-          <div key={s.key} className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs uppercase tracking-wide text-binance-muted">
-                {s.label}
-              </Label>
-              <span className="text-xs font-mono font-semibold text-binance-yellow tabular-nums">
-                {s.value}
-              </span>
-            </div>
-            <Slider
-              value={[s.value]}
-              min={s.min}
-              max={s.max}
-              step={s.step}
-              onValueChange={(v) => s.onChange(v[0])}
-              disabled={disabled}
-              className="[&_[data-slot=slider-range]]:bg-binance-yellow [&_[data-slot=slider-thumb]]:border-binance-yellow"
-            />
-            {s.hint && (
-              <span className="text-[10px] text-binance-muted/80 leading-tight">
-                {s.hint}
-              </span>
-            )}
-          </div>
+          <SettingSlider key={s.key} spec={s} disabled={disabled} />
         ))}
       </div>
     </section>
