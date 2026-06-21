@@ -5,12 +5,13 @@
 // Vercel compatibility:
 // - Each chunk of symbols is scanned with a timeout so the function
 //   doesn't hang indefinitely if Binance is slow.
-// - Reduces chunk size from 15→8 to lower per-chunk latency on Vercel.
+// - Reduces chunk size from 15→6 to lower per-chunk latency on Vercel.
+// - SSE headers are Vercel-proxy-compatible (no Connection: keep-alive).
 
 import { fetchTradingSymbols } from "./binance";
 
-const DEFAULT_CHUNK = 8;
-const CHUNK_TIMEOUT_MS = 25_000;
+const DEFAULT_CHUNK = 6;
+const CHUNK_TIMEOUT_MS = 15_000;
 
 export type ScanMatchPayload = Record<string, unknown>;
 
@@ -125,10 +126,12 @@ export async function runScanStream(
   }
 }
 
+// SSE headers compatible with Vercel's proxy.
+// NOTE: Do NOT include "Connection: keep-alive" — Vercel's proxy manages
+// connections and this header can cause streaming to fail.
 export const SSE_HEADERS: Record<string, string> = {
   "Content-Type": "text/event-stream; charset=utf-8",
   "Cache-Control": "no-cache, no-transform",
-  Connection: "keep-alive",
   "X-Accel-Buffering": "no",
 };
 

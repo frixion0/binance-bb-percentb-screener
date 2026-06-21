@@ -4,25 +4,27 @@
 //
 // Vercel compatibility:
 // - Tries multiple Binance API endpoints (fapi.binance.com may return HTTP 451
-//   from Vercel's geo-restricted IPs; fapi1–4 are regional alternatives).
+//   from Vercel's geo-restricted IPs; fapi1–4 + .me are alternatives).
 // - Per-request timeout prevents hanging on unresponsive endpoints.
-// - Retry logic with backoff for transient network failures.
+// - Sequential endpoint fallback: tries each endpoint until one works.
 
 import { calculateBB } from "./bb";
 
 // Multiple Binance Futures API endpoints to try.
 // fapi.binance.com returns 451 from many Vercel regions; the numbered
-// endpoints (fapi1–4) are regional load balancers that are more permissive.
+// endpoints (fapi1–4) are regional load balancers; .me is an alternative domain.
 const BASE_URLS = [
   "https://fapi1.binance.com",
   "https://fapi2.binance.com",
   "https://fapi3.binance.com",
   "https://fapi4.binance.com",
   "https://fapi.binance.com",
+  "https://fapi.binance.me",
 ];
 
 // Per-request timeout (ms). Must be well under Vercel's function timeout.
 const FETCH_TIMEOUT = 10_000;
+const PING_TIMEOUT = 5_000;
 
 // In-memory cache for the working base URL (survives within a single
 // serverless invocation; will be re-resolved on each cold start).
@@ -30,93 +32,78 @@ let resolvedBase: string | null = null;
 
 /**
  * Find a reachable Binance Futures API endpoint by pinging /fapi/v1/ping.
- * Results are cached for the lifetime of the serverless invocation.
+ * Tries endpoints sequentially and caches the first working one.
+ * This is more reliable than Promise.race which could pick a null result.
  */
 async function getBaseUrl(): Promise<string> {
   if (resolvedBase) return resolvedBase;
 
-  // Race all endpoints concurrently — first OK response wins.
-  const controller = new AbortController();
-  const winner = await Promise.race(
-    BASE_URLS.map(async (url) => {
-      try {
-        const res = await fetch(`${url}/fapi/v1/ping`, {
-          cache: "no-store",
-          signal: controller.signal,
-          headers: { Accept: "application/json" },
-        });
-        if (res.ok) return url;
-      } catch {
-        // unreachable — skip
+  for (const url of BASE_URLS) {
+    try {
+      const res = await fetch(`${url}/fapi/v1/ping`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(PING_TIMEOUT),
+        headers: { Accept: "application/json" },
+      });
+      if (res.ok) {
+        resolvedBase = url;
+        return url;
       }
-      // Return a sentinel that will never win a race against a real URL
-      return null;
-    })
-  );
-
-  if (winner) {
-    resolvedBase = winner;
-    return winner;
+    } catch {
+      // try next endpoint
+    }
   }
 
-  // If no endpoint responded to ping, try them sequentially for real requests.
-  // Default to fapi1 which is the most widely accessible.
+  // If ALL endpoints fail to ping, default to first and let the
+  // actual request surface a meaningful error.
   resolvedBase = BASE_URLS[0];
   return resolvedBase;
 }
 
 /**
- * Fetch with timeout and automatic endpoint fallback.
- * If the current endpoint returns an error (e.g. 451, 503), it resets
- * the cached base URL so the next call will re-detect.
+ * Fetch with timeout. If the current endpoint returns 451 or a server error,
+ * invalidate the cached base and try the NEXT endpoint automatically.
  */
 async function binanceFetch(path: string): Promise<Response> {
-  const base = await getBaseUrl();
-  const res = await fetch(`${base}${path}`, {
-    cache: "no-store",
-    headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(FETCH_TIMEOUT),
-  });
-
-  // If we get a 451 or server error, invalidate the cached base so we
-  // re-detect on the next request.
-  if (res.status === 451 || res.status >= 500) {
-    resolvedBase = null;
-  }
-
-  return res;
-}
-
-/**
- * Fetch with retry — up to `retries` attempts with exponential backoff.
- * On each retry, the base URL is re-resolved (since we invalidated it above).
- */
-async function binanceFetchWithRetry(
-  path: string,
-  retries = 2
-): Promise<Response> {
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= retries; attempt++) {
+  // Try each endpoint until one works
+  for (let attempt = 0; attempt < BASE_URLS.length; attempt++) {
+    const base = await getBaseUrl();
     try {
-      const res = await binanceFetch(path);
-      // If we got a non-transient error, don't retry
+      const res = await fetch(`${base}${path}`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT),
+      });
+
+      // If we get 451 or 5xx, this endpoint is blocked/down — try next
       if (res.status === 451 || res.status >= 500) {
-        if (attempt < retries) {
-          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
-          continue;
+        resolvedBase = null; // force re-detection
+        // Move to the next endpoint in the list
+        const currentIdx = BASE_URLS.indexOf(base);
+        if (currentIdx < BASE_URLS.length - 1) {
+          resolvedBase = BASE_URLS[currentIdx + 1];
         }
+        continue;
       }
+
       return res;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt < retries) {
-        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    } catch {
+      // Network error — try next endpoint
+      resolvedBase = null;
+      const currentIdx = BASE_URLS.indexOf(base);
+      if (currentIdx < BASE_URLS.length - 1) {
+        resolvedBase = BASE_URLS[currentIdx + 1];
       }
     }
   }
 
-  throw lastError ?? new Error("All retries exhausted");
+  // All endpoints exhausted — reset for next attempt and throw
+  resolvedBase = null;
+  throw new Error(
+    `All ${BASE_URLS.length} Binance API endpoints are unreachable from this server. ` +
+    `This typically means the server region is geo-restricted. ` +
+    `Visit /api/debug for detailed connectivity diagnostics.`
+  );
 }
 
 // Short in-memory cache for exchangeInfo (survives within one invocation).
@@ -146,13 +133,12 @@ export async function fetchTradingSymbols(): Promise<string[]> {
     return symbolsCache.symbols;
   }
 
-  const res = await binanceFetchWithRetry("/fapi/v1/exchangeInfo");
+  const res = await binanceFetch("/fapi/v1/exchangeInfo");
   if (!res.ok) {
-    resolvedBase = null; // force re-detect on next attempt
+    resolvedBase = null;
     throw new Error(
       `Binance exchangeInfo returned HTTP ${res.status}. ` +
-        `This usually means the Binance API is geo-restricted in the server region. ` +
-        `All ${BASE_URLS.length} endpoint alternatives were tried.`
+      `Visit /api/debug for connectivity diagnostics.`
     );
   }
 

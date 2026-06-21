@@ -1,7 +1,10 @@
 {
   "functions": {
     "src/app/api/scan/crossover/route.ts": {
-      "maxDuration": 300
+      "maxDuration": 60
+    },
+    "src/app/api/debug/route.ts": {
+      "maxDuration": 30
     },
     "src/app/api/route.ts": {
       "maxDuration": 10
