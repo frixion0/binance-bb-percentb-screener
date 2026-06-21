@@ -1,16 +1,8 @@
 "use client";
 
-import { Activity, LineChart, Radar } from "lucide-react";
+import { Radar } from "lucide-react";
 
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
 import { CrossoverView } from "@/components/screener/crossover-view";
-import { FlatView } from "@/components/screener/flat-view";
-import { WaveTrendView } from "@/components/screener/wavetrend-view";
 
 export default function Home() {
   return (
@@ -27,8 +19,7 @@ export default function Home() {
             Binance Futures BB %B Screener
           </h1>
           <p className="text-binance-muted mt-2 text-sm sm:text-base">
-            Fully customizable Bollinger Bands %B scanner — crossover signals and
-            straight-line detection. All scanning runs server-side.
+            Fully customizable Bollinger Bands %B scanner — crossover signal detection. All scanning runs server-side.
           </p>
         </header>
 
@@ -37,47 +28,11 @@ export default function Home() {
           <p className="leading-relaxed">
             <span className="font-semibold text-binance-green">No browser setup required.</span>{" "}
             All Binance API requests run on the server, so no CORS extension is
-            needed. Tune the settings below and run a scan for either signal
-            type.
+            needed. Tune the settings below and run a scan.
           </p>
         </div>
 
-        {/* Mode tabs */}
-        <Tabs defaultValue="crossover" className="gap-4">
-          <TabsList className="bg-card border border-border h-auto p-1.5">
-            <TabsTrigger
-              value="crossover"
-              className="data-[state=active]:bg-binance-yellow data-[state=active]:text-background data-[state=active]:shadow-md px-4 py-2 text-sm font-semibold gap-2"
-            >
-              <Radar className="size-4" />
-              %B Crossover
-            </TabsTrigger>
-            <TabsTrigger
-              value="flat"
-              className="data-[state=active]:bg-binance-yellow data-[state=active]:text-background data-[state=active]:shadow-md px-4 py-2 text-sm font-semibold gap-2"
-            >
-              <LineChart className="size-4" />
-              Straight-Line Detector
-            </TabsTrigger>
-            <TabsTrigger
-              value="wavetrend"
-              className="data-[state=active]:bg-binance-yellow data-[state=active]:text-background data-[state=active]:shadow-md px-4 py-2 text-sm font-semibold gap-2"
-            >
-              <Activity className="size-4" />
-              Wave Trend Signals
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="crossover">
-            <CrossoverView />
-          </TabsContent>
-          <TabsContent value="flat">
-            <FlatView />
-          </TabsContent>
-          <TabsContent value="wavetrend">
-            <WaveTrendView />
-          </TabsContent>
-        </Tabs>
+        <CrossoverView />
 
         <p className="text-[11px] text-binance-muted mt-4 text-center">
           Data sourced live from the Binance USDⓈ-M Futures API. For research

@@ -14,15 +14,14 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Binance Futures BB %B Crossover Screener",
+  title: "Binance Futures BB %B Screener",
   description:
-    "Scan Binance USDⓈ-M perpetual futures for Bollinger Bands %B crossovers above the zero line. Runs server-side — no CORS extension or VPN setup required in the browser.",
+    "Scan Binance USDⓈ-M perpetual futures for Bollinger Bands %B crossover signals. Runs server-side — no CORS extension or VPN setup required in the browser.",
   keywords: [
     "Binance",
     "Futures",
     "Bollinger Bands",
     "%B",
-    "Crossover",
     "Screener",
     "Crypto",
     "Trading",
@@ -32,17 +31,17 @@ export const metadata: Metadata = {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
   openGraph: {
-    title: "Binance Futures BB %B Crossover Screener",
+    title: "Binance Futures BB %B Screener",
     description:
-      "Scan Binance perpetual futures for Bollinger Bands %B crossovers above zero.",
+      "Scan Binance perpetual futures for Bollinger Bands %B crossover signals.",
     siteName: "BB Screener",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Binance Futures BB %B Crossover Screener",
+    title: "Binance Futures BB %B Screener",
     description:
-      "Scan Binance perpetual futures for Bollinger Bands %B crossovers above zero.",
+      "Scan Binance perpetual futures for Bollinger Bands %B crossover signals.",
   },
 };
 
