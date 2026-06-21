@@ -6,7 +6,37 @@ import {
   calculateBB,
 } from "./bb";
 
-const BASE_URL = "https://fapi.binance.com";
+// Binance Futures API endpoints. fapi.binance.com may return HTTP 451
+// (Unavailable for Legal Reasons) in geo-restricted regions, so we prefer
+// fapi.binance.me which is more broadly accessible. If that also fails we
+// fall back to fapi.binance.com as a last resort.
+const BASE_URLS = [
+  "https://fapi.binance.me",
+  "https://fapi.binance.com",
+];
+
+let resolvedBase: string | null = null;
+
+async function getBaseUrl(): Promise<string> {
+  if (resolvedBase) return resolvedBase;
+  for (const url of BASE_URLS) {
+    try {
+      const res = await fetch(`${url}/fapi/v1/ping`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(5000),
+      });
+      if (res.ok) {
+        resolvedBase = url;
+        return url;
+      }
+    } catch {
+      // try next
+    }
+  }
+  // If both fail, default to the first and let the actual request surface the error.
+  resolvedBase = BASE_URLS[0];
+  return resolvedBase;
+}
 
 // Short in-memory cache for exchangeInfo (it's large and rarely changes).
 let symbolsCache: { symbols: string[]; ts: number } | null = null;
@@ -34,11 +64,14 @@ export async function fetchTradingSymbols(): Promise<string[]> {
   if (symbolsCache && Date.now() - symbolsCache.ts < SYMBOLS_TTL) {
     return symbolsCache.symbols;
   }
-  const res = await fetch(`${BASE_URL}/fapi/v1/exchangeInfo`, {
+  const base = await getBaseUrl();
+  const res = await fetch(`${base}/fapi/v1/exchangeInfo`, {
     cache: "no-store",
     headers: { Accept: "application/json" },
   });
   if (!res.ok) {
+    // Reset resolved base so next attempt retries both endpoints
+    resolvedBase = null;
     throw new Error(`Binance exchangeInfo returned HTTP ${res.status}`);
   }
   const data = (await res.json()) as {
@@ -65,8 +98,9 @@ async function fetchCloses(
   interval: string,
   limit: number
 ): Promise<number[] | null> {
+  const base = await getBaseUrl();
   const res = await fetch(
-    `${BASE_URL}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
+    `${base}/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`,
     { cache: "no-store", headers: { Accept: "application/json" } }
   );
   if (!res.ok) return null;
