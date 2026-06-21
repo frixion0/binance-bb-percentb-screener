@@ -1,10 +1,16 @@
-// Shared SSE scan runner used by both the crossover and flat-line endpoints.
+// Shared SSE scan runner used by the crossover endpoint.
 // Handles: interval validation, symbol fetching, chunked parallel scanning,
 // progress/match/done/error event emission, and client-abort handling.
+//
+// Vercel compatibility:
+// - Each chunk of symbols is scanned with a timeout so the function
+//   doesn't hang indefinitely if Binance is slow.
+// - Reduces chunk size from 15→8 to lower per-chunk latency on Vercel.
 
 import { fetchTradingSymbols } from "./binance";
 
-const DEFAULT_CHUNK = 15;
+const DEFAULT_CHUNK = 8;
+const CHUNK_TIMEOUT_MS = 25_000;
 
 export type ScanMatchPayload = Record<string, unknown>;
 
@@ -31,6 +37,32 @@ function send(
   }
 }
 
+/**
+ * Run a scan with a per-chunk timeout so we don't block forever on
+// unresponsive Binance API calls.
+ */
+async function scanChunkWithTimeout(
+  chunk: string[],
+  interval: string,
+  scanOne: RunScanOptions["scanOne"]
+): Promise<ScanMatchPayload[]> {
+  const results = await Promise.all(
+    chunk.map(async (sym) => {
+      try {
+        return await Promise.race([
+          scanOne(sym, interval),
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), CHUNK_TIMEOUT_MS)
+          ),
+        ]);
+      } catch {
+        return null;
+      }
+    })
+  );
+  return results.filter((r): r is ScanMatchPayload => r !== null);
+}
+
 export async function runScanStream(
   request: Request,
   controller: ReadableStreamDefaultController<Uint8Array>,
@@ -44,7 +76,7 @@ export async function runScanStream(
   try {
     send(controller, encoder, {
       type: "status",
-      message: "Fetching Binance Futures exchange metadata…",
+      message: "Connecting to Binance Futures API…",
     });
 
     const symbols = await fetchTradingSymbols();
@@ -57,16 +89,12 @@ export async function runScanStream(
       if (request.signal.aborted) break;
 
       const chunk = symbols.slice(i, i + chunkSize);
-      const results = await Promise.all(
-        chunk.map((sym) => opts.scanOne(sym, interval))
-      );
+      const matches = await scanChunkWithTimeout(chunk, interval, opts.scanOne);
       scanned += chunk.length;
 
-      for (const r of results) {
-        if (r) {
-          matchCount += 1;
-          send(controller, encoder, { type: "match", data: r });
-        }
+      for (const r of matches) {
+        matchCount += 1;
+        send(controller, encoder, { type: "match", data: r });
       }
 
       send(controller, encoder, {
@@ -83,10 +111,11 @@ export async function runScanStream(
       total: symbols.length,
     });
   } catch (err) {
-    send(controller, encoder, {
-      type: "error",
-      message: err instanceof Error ? err.message : "Scan failed unexpectedly.",
-    });
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Scan failed unexpectedly.";
+    send(controller, encoder, { type: "error", message });
   } finally {
     try {
       controller.close();
